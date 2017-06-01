@@ -1,6 +1,7 @@
 workflow Start-VMsFromWebhook
 {
-        param ( 
+ 
+    param ( 
         [object]$WebhookData
     )
  
@@ -17,15 +18,41 @@ workflow Start-VMsFromWebhook
         $VMList = ConvertFrom-Json -InputObject $WebhookBody
         Write-Output "Runbook started from webhook $WebhookName by $From."
  
-        # Authenticate to Azure resources
-        $Cred = Get-AutomationPSCredential -Name 'ContosoAccount'
-        Add-AzureAccount -Credential $Cred
- 
+#====================START OF CONNECTION SETUP=======================
+$connectionName = "AzureRunAsConnection"
+$SubId = Get-AutomationVariable -Name 'AzureSubscriptionId'
+try
+{
+   # Get the connection "AzureRunAsConnection "
+   $servicePrincipalConnection=Get-AutomationConnection -Name $connectionName         
+
+   "Logging in to Azure..."
+   Add-AzureRmAccount `
+     -ServicePrincipal `
+     -TenantId $servicePrincipalConnection.TenantId `
+     -ApplicationId $servicePrincipalConnection.ApplicationId `
+     -CertificateThumbprint $servicePrincipalConnection.CertificateThumbprint
+   "Setting context to a specific subscription"  
+   Set-AzureRmContext -SubscriptionId $SubId             
+}
+catch {
+    if (!$servicePrincipalConnection)
+    {
+       $ErrorMessage = "Connection $connectionName not found."
+       throw $ErrorMessage
+     } else{
+        Write-Error -Message $_.Exception
+        throw $_.Exception
+     }
+     }
+#====================END OF CONNECTION SETUP=======================
+
         # Start each virtual machine
         foreach ($VM in $VMList)
         {
             Write-Output "Starting $VM.Name."
-            Start-AzureVM -Name $VM.Name -ServiceName $VM.ServiceName
+            $VMObject = get-azureRMVM | ?{$_.Name -eq $VM.Name}
+            $VMObject | Start-AzureRMVM
         }
     }
     else {
